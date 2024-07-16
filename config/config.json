@@ -1,0 +1,4 @@
+{
+    "http_port": 8080,
+    "solana_rpc": "https://api.mainnet-beta.solana.com"
+}
