@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"solana_rpc/config"
+	"strconv"
+	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/programs/token"
@@ -14,7 +17,9 @@ import (
 // Send the test Token to user
 func TokenAccountBalance(c *gin.Context) {
 	client := rpc.New(config.SolanaRpc)
-	pubKey, err := solana.PublicKeyFromBase58(c.Query("account"))
+	owner := c.Query("account")
+	collection := c.Query("collection")
+	pubKey, err := solana.PublicKeyFromBase58(owner)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"result":   false,
@@ -32,6 +37,10 @@ func TokenAccountBalance(c *gin.Context) {
 			data.Amount = out.Value
 			data.Owner = pubKey
 		}
+	} else if spl == "721" {
+		data.Amount, err = GetNftAssert(owner, collection)
+		data.Owner = pubKey
+		data.Mint, _ = solana.PublicKeyFromBase58(collection)
 	} else {
 		err = client.GetAccountDataInto(context.TODO(), pubKey, &data)
 	}
@@ -51,4 +60,53 @@ func TokenAccountBalance(c *gin.Context) {
 		"programid": data.Mint.String(),
 		"amount":    data.Amount,
 	})
+}
+
+type SearchAssertMethod struct {
+	Jsonrpc string `json:"jsonrpc"`
+	Id      string `json:"id"`
+	Method  string `json:"method"`
+	Params  struct {
+		OwnerAddress string   `json:"ownerAddress"`
+		Grouping     []string `json:"grouping"`
+		Page         int      `json:"page"`
+		Limit        int      `json:"limit"`
+	} `json:"params"`
+}
+
+type SearchAssertResult struct {
+	Jsonrpc string `json:"jsonrpc"`
+	Id      string `json:"id"`
+	Result  struct {
+		Total uint64 `json:"total"`
+	}
+}
+
+var searchNftMethod SearchAssertMethod
+
+func GetNftAssert(owner, collection string) (uint64, error) {
+	grouping := make([]string, 0, 2)
+	grouping = append(grouping, "collection")
+	grouping = append(grouping, collection)
+	searchNftMethod.Params.OwnerAddress = owner
+	searchNftMethod.Params.Grouping = grouping
+
+	res, err := HttpJsonPost(config.SolanaRpc, searchNftMethod)
+	if err != nil {
+		return 0, err
+	}
+	var nftResult SearchAssertResult
+	if err = json.Unmarshal(res, &nftResult); err != nil {
+		return 0, err
+	}
+
+	return nftResult.Result.Total, nil
+}
+
+func init() {
+	searchNftMethod.Id = strconv.FormatInt(time.Now().Unix(), 10)
+	searchNftMethod.Jsonrpc = "2.0"
+	searchNftMethod.Method = "searchAssets"
+	searchNftMethod.Params.Page = 1
+	searchNftMethod.Params.Limit = 1
 }
